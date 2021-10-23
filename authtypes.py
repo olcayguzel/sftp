@@ -1,6 +1,6 @@
 from enum import Enum
 
-class AuthTypes(Enum):
+class SendTypes(Enum):
     FTP = 1
     SFTP = 2
-    FTP_TLS = 3
+    RSYNC = 3

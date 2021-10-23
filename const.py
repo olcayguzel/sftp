@@ -13,7 +13,7 @@ SORTING_KEY = "Sorting"
 
 ADDRESS_KEY = "Address"
 PORT_KEY = "Port"
-AUTHENTICATION_KEY = "AuthType"
+SENDTYPE_KEY = "SendType"
 USERNAME_KEY = "UserName"
 PASSWORD_KEY = "Password"
 CERTPATH_KEY = "CertPath"

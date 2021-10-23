@@ -6,7 +6,7 @@ from paramiko import SSHException, AuthenticationException, PasswordRequiredExce
 from pysftp import Connection, CnOpts
 from threading import Thread, Lock
 from ftplib import FTP
-from authtypes import AuthTypes
+from authtypes import SendTypes
 from logger import Logger, LogTypes
 import const
 
@@ -16,7 +16,7 @@ class Host:
     def __init__(self):
         self.Address = ""
         self.Port:int = 22
-        self.AuthType:AuthTypes = AuthTypes.SFTP
+        self.SendType:SendTypes = SendTypes.SFTP
         self.UserName = ""
         self.Password = ""
         self.CertPath = None
@@ -31,7 +31,7 @@ class Host:
         self.__ftp = None
         self.__logger = Logger()
         self.__worker = Thread(target=self.__start)
-        self.__lifechecker = Thread(target=self.__isalive)
+        self.__lifechecker = Thread(target=self.__keepalive)
 
     def storelastsentfile(host, filename, log):
         fd = None
@@ -73,17 +73,17 @@ class Host:
             mutex.release()
 
     @property
-    def Connected(self) -> bool:
+    def connected(self) -> bool:
         return self.__connected
 
     @property
-    def Running(self) -> bool:
+    def cunning(self) -> bool:
         return self.__running
 
-    def __isalive(self):
+    def __keepalive(self):
         try:
             while True:
-                if self.AuthType == AuthTypes.FTP:
+                if self.AuthType == SendTypes.FTP:
                     if self.__ftp is not None:
                         self.__ftp.voidcmd("TYPE I")
                         self.__connected = True
@@ -92,7 +92,7 @@ class Host:
                         self.__sftp.exits(self.RemotePath)
                         self.__connected = True
                 time.sleep(5)
-        except:
+        except Exception as ex:
             self.__connected = False
 
     def __connectFTP(self):
@@ -113,7 +113,7 @@ class Host:
 
     def __connect(self):
         try:
-            if self.AuthType == AuthTypes.FTP:
+            if self.AuthType == SendTypes.FTP:
                 self.__connectFTP()
             else:
                 self.__connectSFTP()
@@ -175,7 +175,7 @@ class Host:
         try:
             remoteFile = self.RemotePath
             remoteFile += "/" + filename
-            if self.AuthType == AuthTypes.FTP:
+            if self.AuthType == SendTypes.FTP:
                 result = self.__put_ftp(source)
             else:
                 result = self.__put_sftp(source, remoteFile)
@@ -204,14 +204,14 @@ class Host:
 
     def addtoqueue(self, file):
         self.__files.append(file)
-        if not self.__worker.isAlive():
+        if not self.__worker.is_alive():
             self.__worker.start()
 
     def __close(self):
         try:
             if self.__sftp is not None:
                 self.__sftp.close()
-        except:
+        except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"SFTP Connection could not close", self.Address)
 
         try:

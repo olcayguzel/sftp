@@ -54,7 +54,8 @@ class Watcher:
 				self.__worker = threading.Thread(target = self.__start)
 				self.__running = True
 				self.__worker.start()
-			except Exception:
+			except Exception as ex:
+				print(ex)
 				self.__running = False
 
 	def stop(self):

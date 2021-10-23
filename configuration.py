@@ -1,5 +1,5 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from authtypes import AuthTypes
+from authtypes import SendTypes
 from sortingmethods import SortingMethods
 from host import Host
 import os
@@ -42,8 +42,8 @@ class Config:
                                 host.UserName = h.get(const.USERNAME_KEY)
                             if h.get(const.PASSWORD_KEY):
                                 host.Password = h.get(const.PASSWORD_KEY)
-                            if h.get(const.AUTHENTICATION_KEY):
-                                host.AuthType =  AuthTypes(h.get(const.AUTHENTICATION_KEY))
+                            if h.get(const.SENDTYPE_KEY):
+                                host.SendType =  SendTypes(h.get(const.SENDTYPE_KEY))
                             if h.get(const.CERTPATH_KEY):
                                 host.CertPath = h.get(const.CERTPATH_KEY)
                             if h.get(const.REMOTE_PATH_KEY):
