@@ -1,8 +1,10 @@
 import os
 import time
-
 from configuration import Config
+import watcher
+
 config = Config()
+w = watcher.Watcher()
 
 def start():
     cdrfiles = dict()
@@ -74,6 +76,19 @@ def sendfile(file):
             #host.send(file, "def.jpg")
             #host.close()
 
+def printnewfile(file:callable(str)):
+    print(file)
+
+def d():
+    w.folder = "/Users/olcayguzel/Desktop/Output"
+    w.onnew = printnewfile
+    w.start()
+
 if __name__ == '__main__':
     config.load("./config.json")
-    start()
+    #start()
+    d()
+    time.sleep(15)
+    w.stop()
+    time.sleep(10)
+    w.start()
