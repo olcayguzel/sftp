@@ -1,0 +1,17 @@
+{
+	"InputFolder": "C:\\Odine\\Input",
+	"Sorting": 1,
+	"Hosts": [
+		{
+			"Address": "192.168.1.21",
+			"Port": 21,
+			"AuthType":1,
+			"UserName": "root",
+			"Password":"q1w2e3r4",
+			"CertPath":"",
+			"RemotePath": "/",
+			"ConnectTimeout": 1,
+			"Compression": false
+		}
+	]
+}
