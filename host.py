@@ -83,14 +83,16 @@ class Host:
     def __keepalive(self):
         try:
             while True:
-                if self.AuthType == SendTypes.FTP:
+                if self.SendType == SendTypes.FTP:
                     if self.__ftp is not None:
                         self.__ftp.voidcmd("TYPE I")
                         self.__connected = True
-                else:
+                elif self.SendType == SendTypes.SFTP:
                     if self.__sftp is not None:
                         self.__sftp.exits(self.RemotePath)
                         self.__connected = True
+                else:
+                    break
                 time.sleep(5)
         except Exception as ex:
             self.__connected = False
@@ -113,10 +115,12 @@ class Host:
 
     def __connect(self):
         try:
-            if self.AuthType == SendTypes.FTP:
+            if self.SendType == SendTypes.FTP:
                 self.__connectFTP()
-            else:
+            elif self.SendType == SendTypes.SFTP:
                 self.__connectSFTP()
+            else:
+                pass
         except PasswordRequiredException:
             self.__connected = False
             self.__logger.write(LogTypes.ERROR, f"Password required for '{self.UserName}", self.Address)
@@ -141,8 +145,6 @@ class Host:
             fd = open(source, "rb")
             if self.__ftp is not None:
                 result = os.stat(source)
-                filesize = result.st_size
-                total_sent_bytes = 0
                 self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd )
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
@@ -175,10 +177,12 @@ class Host:
         try:
             remoteFile = self.RemotePath
             remoteFile += "/" + filename
-            if self.AuthType == SendTypes.FTP:
+            if self.SendType == SendTypes.FTP:
                 result = self.__put_ftp(source)
-            else:
+            elif self.SendType == SendTypes.SFTP:
                 result = self.__put_sftp(source, remoteFile)
+            else:
+                pass
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}). Error: {ex}", self.Address)
         if result:
