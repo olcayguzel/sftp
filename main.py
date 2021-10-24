@@ -2,9 +2,11 @@ import os
 import time
 from configuration import Config
 import watcher
+from process import Process
 
 config = Config()
 w = watcher.Watcher()
+p = Process()
 
 def start():
     cdrfiles = dict()
@@ -79,16 +81,26 @@ def sendfile(file):
 def printnewfile(file:callable(str)):
     print(file)
 
-def d():
+def watch():
     w.folder = "/Users/olcayguzel/Desktop/Output"
     w.onnew = printnewfile
     w.start()
 
+def process():
+    p.path = "/Users/olcayguzel/go/src/cdr/main"
+    p.arguments = ""
+    p.onoutput = lambda s: print("OUTPUT", s)
+    p.onerror = lambda  s: print("ERROR", s)
+    p.start()
+    p.wait()
+
 if __name__ == '__main__':
     config.load("./config.json")
+    process()
+    p.kill()
     #start()
-    d()
-    time.sleep(15)
-    w.stop()
-    time.sleep(10)
-    w.start()
+    #watch()
+    #time.sleep(15)
+    #w.stop()
+    #time.sleep(10)
+    #w.start()
