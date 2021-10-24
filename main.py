@@ -3,10 +3,12 @@ import time
 from configuration import Config
 import watcher
 from process import Process
+from compressfile import CompressFile
 
 config = Config()
 w = watcher.Watcher()
 p = Process()
+c = CompressFile()
 
 def start():
     cdrfiles = dict()
@@ -94,10 +96,16 @@ def process():
     p.start()
     p.wait()
 
+def zip():
+    c.filename = "/Users/olcayguzel/Desktop/Input2/a.cdr"
+    c.level = 9
+    c.compress()
+
 if __name__ == '__main__':
     config.load("./config.json")
-    process()
-    p.kill()
+    zip()
+    #process()
+    #p.kill()
     #start()
     #watch()
     #time.sleep(15)
