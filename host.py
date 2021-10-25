@@ -8,6 +8,7 @@ from threading import Thread, Lock
 from ftplib import FTP
 from authtypes import SendTypes
 from logger import Logger, LogTypes
+from process import Process
 import const
 
 mutex = Lock()
@@ -29,11 +30,12 @@ class Host:
         self.__sftpoptions = CnOpts()
         self.__sftp = None
         self.__ftp = None
+        self.__process = None
         self.__logger = Logger()
         self.__worker = Thread(target=self.__start)
         self.__lifechecker = Thread(target=self.__keepalive)
 
-    def storelastsentfile(host, filename, log):
+    def storelastsentfile(self, host, filename, log):
         fd = None
         try:
             mutex.acquire(blocking=True)
@@ -107,11 +109,17 @@ class Host:
 
     def __connectSFTP(self):
         self.__sftpoptions.hostkeys = None
-        self.__sftpoptions.compression = self.Compression
+        self.__sftpoptions.compression = True
         Connection.timeout = self.ConnectTimeout
         self.__sftp = Connection(host=self.Address, port=self.Port, username= self.UserName, password=self.Password, private_key=self.CertPath, cnopts=self.__sftpoptions)
         self.__connected = True
         self.__logger.write(LogTypes.DEBUG, "Connection established via SFTP protocol", self.Address)
+
+    def __syncRSYNC(self):
+        self.__process = Process()
+        self.__process.path = "rsync"
+        self.__process.arguments = ""
+        self.__process.start()
 
     def __connect(self):
         try:
@@ -120,7 +128,7 @@ class Host:
             elif self.SendType == SendTypes.SFTP:
                 self.__connectSFTP()
             else:
-                pass
+                self.__connectRSYNC()
         except PasswordRequiredException:
             self.__connected = False
             self.__logger.write(LogTypes.ERROR, f"Password required for '{self.UserName}", self.Address)
@@ -186,7 +194,7 @@ class Host:
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}). Error: {ex}", self.Address)
         if result:
-            Host.storelastsentfile(self.Address, source, self.__logger)
+            self.storelastsentfile(self.Address, source, self.__logger)
         return result
 
     def __process(self):
