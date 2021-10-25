@@ -20,6 +20,7 @@ def getnewfiles():
     cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: t[1]))
     for file in cdrfiles:
         sendfile(os.path.join(config.InputFolder, file[0]))
+        time.sleep(10)
 
 def compressfile(file):
     compress = CompressFile()
@@ -32,21 +33,22 @@ def compressfile(file):
 def sendfile(file):
     if len(config.RemoteHosts) > 0:
         for host in config.RemoteHosts:
-            if host.Compress:
-                file = compresfile(file)
+            if host.Compression:
+                file = compressfile(file)
             host.addtoqueue(file)
 
 def printnewfile(file:callable(str)):
     sendfile(file)
 
 def watch():
-    watcher.folder = "c:\\Odine\\Input"
+    watcher.folder = config.InputFolder
     watcher.onnew = printnewfile
     watcher.start()
 
 if __name__ == '__main__':
     config.load("./config.json")
-    zip()
+    getnewfiles()
+    watch()
     #process()
     #p.kill()
     #start()

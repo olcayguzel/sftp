@@ -1,12 +1,11 @@
 import os
-import threading
 import time
 
 from paramiko import SSHException, AuthenticationException, PasswordRequiredException
 from pysftp import Connection, CnOpts
 from threading import Thread, Lock
 from ftplib import FTP
-from authtypes import SendTypes
+from sendtypes import SendTypes
 from logger import Logger, LogTypes
 from process import Process
 import const
@@ -24,18 +23,20 @@ class Host:
         self.RemotePath = ""
         self.ConnectTimeout:int = 10
         self.Compression:bool = False
+        self.MaxTryCount:int = 5
+        self.MaxTryAction:int = None
         self.__files = []
         self.__connected:bool = False
         self.__running:bool = False
         self.__sftpoptions = CnOpts()
         self.__sftp = None
         self.__ftp = None
-        self.__process = None
+        self.__rsync = None
         self.__logger = Logger()
         self.__worker = Thread(target=self.__start)
         self.__lifechecker = Thread(target=self.__keepalive)
 
-    def storelastsentfile(self, host, filename, log):
+    def storelastsentfile(self, filename, log):
         fd = None
         try:
             mutex.acquire(blocking=True)
@@ -44,16 +45,16 @@ class Host:
             fileinfo = os.stat(filename)
             for line in fd.readlines():
                 data = line.split("|")
-                print(line, data[0], host)
-                if data[0] != host:
+                print(line, data[0], self.Address)
+                if data[0] != self.Address:
                     lines.append(line)
                 else:
-                    content = const.DAT_FILE_FORMAT.replace("[HOST]", host)
+                    content = const.DAT_FILE_FORMAT.replace("[HOST]", self.Address)
                     content = content.replace("[NAME]", os.path.basename(filename))
                     content = content.replace("[DATE]", str(fileinfo.st_ctime_ns))
                     lines.append(content)
             if len(lines) == 0:
-                content = const.DAT_FILE_FORMAT.replace("[HOST]", host)
+                content = const.DAT_FILE_FORMAT.replace("[HOST]", self.Address)
                 content = content.replace("[NAME]", os.path.basename(filename))
                 content = content.replace("[DATE]", str(fileinfo.st_ctime_ns))
                 lines.append(content)
@@ -65,7 +66,7 @@ class Host:
             else:
                 log.write(LogTypes.ERROR,
                           f"Last processed file could not update. File is not writable. Possible there is no write permission. File name: {filename}")
-        except FileNotFoundError as ex:
+        except FileNotFoundError:
             fd = None
         except Exception as ex:
             log.write(LogTypes.ERROR, ex)
@@ -97,17 +98,18 @@ class Host:
                     break
                 time.sleep(5)
         except Exception as ex:
+            self.__logger.write(LogTypes.ERROR, f"Unexpected error occurred. Error: {ex}")
             self.__connected = False
 
-    def __connectFTP(self):
+    def __connectftp(self):
         self.__ftp = FTP(self.Address)
         self.__ftp.connect(self.Address, self.Port, timeout=self.ConnectTimeout)
         self.__ftp.login(self.UserName, self.Password)
         self.__ftp.cwd(self.RemotePath)
         self.__connected = True
-        self.__logger.write(LogTypes.DEBUG, f"Connected established via FTP protocol", self.Address)
+        self.__logger.write(LogTypes.DEBUG, f"Connection established via FTP protocol", self.Address)
 
-    def __connectSFTP(self):
+    def __connectsftp(self):
         self.__sftpoptions.hostkeys = None
         self.__sftpoptions.compression = True
         Connection.timeout = self.ConnectTimeout
@@ -115,20 +117,12 @@ class Host:
         self.__connected = True
         self.__logger.write(LogTypes.DEBUG, "Connection established via SFTP protocol", self.Address)
 
-    def __syncRSYNC(self):
-        self.__process = Process()
-        self.__process.path = "rsync"
-        self.__process.arguments = ""
-        self.__process.start()
-
     def __connect(self):
         try:
             if self.SendType == SendTypes.FTP:
-                self.__connectFTP()
+                self.__connectftp()
             elif self.SendType == SendTypes.SFTP:
-                self.__connectSFTP()
-            else:
-                self.__connectRSYNC()
+                self.__connectsftp()
         except PasswordRequiredException:
             self.__connected = False
             self.__logger.write(LogTypes.ERROR, f"Password required for '{self.UserName}", self.Address)
@@ -145,6 +139,12 @@ class Host:
             if not self.__lifechecker.is_alive():
                 self.__lifechecker.start()
 
+    def __sendrsync(self):
+        self.__r = Process()
+        self.__rsync.path = "rsync"
+        self.__rsync.arguments = ""
+        self.__rsync.start()
+
     def __put_ftp(self, source:str) -> bool:
         fd = None
         filename = os.path.basename(source)
@@ -152,8 +152,7 @@ class Host:
         try:
             fd = open(source, "rb")
             if self.__ftp is not None:
-                result = os.stat(source)
-                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd )
+                self.__ftp.storbinary(cmd=f"STOR {source}", fp=fd )
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
         except Exception as ex:
@@ -171,10 +170,8 @@ class Host:
                 self.__sftp.put(localpath=source, remotepath=target)
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
-        except IOError as ex:
+        except IOError:
             self.__logger.write(LogTypes.ERROR, f"Remote folder ({self.RemotePath}) does not exists or unreachable", self.Address)
-        except OSError as ex:
-            self.__logger.write(LogTypes.ERROR, f"Local file ({filename})does not exists", self.Address)
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}) via SFTP protocol. Error: {ex}", self.Address)
         return result
@@ -190,11 +187,11 @@ class Host:
             elif self.SendType == SendTypes.SFTP:
                 result = self.__put_sftp(source, remoteFile)
             else:
-                pass
+                self.__sendrsync()
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}). Error: {ex}", self.Address)
         if result:
-            self.storelastsentfile(self.Address, source, self.__logger)
+            self.storelastsentfile(source, self.__logger)
         return result
 
     def __process(self):
@@ -224,10 +221,10 @@ class Host:
             if self.__sftp is not None:
                 self.__sftp.close()
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"SFTP Connection could not close", self.Address)
+            self.__logger.write(LogTypes.ERROR, f"SFTP Connection could not close on {self.Address}. Error: {ex}")
 
         try:
             if self.__ftp is not None:
                 self.__ftp.close()
-        except:
-            self.__logger.write(LogTypes.ERROR, f"FTP connection could not close: {self.Address}")
+        except Exception as ex:
+            self.__logger.write(LogTypes.ERROR, f"FTP connection could not close on {self.Address}. Error: {ex}")

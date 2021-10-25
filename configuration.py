@@ -1,5 +1,5 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from authtypes import SendTypes
+from sendtypes import SendTypes
 from sortingmethods import SortingMethods
 from host import Host
 import os
