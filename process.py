@@ -2,19 +2,19 @@ from subprocess import Popen, PIPE
 from threading import Thread
 class Process:
 	def __init__(self):
-		self.__path:str = ""
-		self.__arguments:str = ""
-		self.__input = None
-		self.__output:bytes = None
-		self.__error:bytes = None
-		self.__running:bool = False
-		self.__process:Popen = None
-		self.__pid:int = 0
-		self.__exitcode:int = None
-		self.__workeroutput:Thread = None
-		self.__workererror:Thread = None
-		self.__outputhandler:callable(str) = None
-		self.__errorhandler:callable(str) = None
+		self.__path: str = ""
+        self.__arguments: str = ""
+        self.__input = None
+        self.__output = None
+        self.__error = None
+        self.__running: bool = False
+        self.__process = None
+        self.__pid: int = 0
+        self.__exitcode = None
+        self.__workeroutput = None
+        self.__workererror = None
+        self.__outputhandler: callable(str) = None
+        self.__errorhandler: callable(str) = None
 
 	@property
 	def path(self):
@@ -66,13 +66,13 @@ class Process:
 					if self.__process.poll():
 						break
 
-	def __execute(self, program, arguments):
-		self.__workeroutput = Thread(target = self.__watchoutput)
-		self.__workererror = Thread(target = self.__workererror)
-		self.__process = Popen(executable = program, args = arguments, stdout = PIPE, stderr = PIPE, universal_newlines = True)
-		self.__workeroutput.start()
-		self.__workererror.start()
-		self.__pid = self.__process.pid
+    def __execute(self, program, arguments):
+        self.__workeroutput = Thread(target=self.__watchoutput, daemon=True)
+        self.__workererror = Thread(target=self.__workererror, daemon=True)
+        self.__process = Popen(executable=program, args=arguments, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        self.__workeroutput.start()
+        self.__workererror.start()
+        self.__pid = self.__process.pid
 
 	def kill(self):
 		if self.__pid > 0:

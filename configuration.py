@@ -1,17 +1,31 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
+import actiontypes
 from sendtypes import SendTypes
 from sortingmethods import SortingMethods
 from host import Host
 import os
 import json
 import const
+from logger import Logger, LogTypes
+
 
 class Config:
-    def __init__(self):
-        self.InputFolder:str = os.getcwd()
+    def __init__(self, log: Logger = None):
+        self.InputFolder: str = os.getcwd()
         self.SortingMethod = SortingMethods.ByName
         self.RemoteHosts = []
         self.LogFolder = const.LOG_FOLDER_PATH
+        self.ConnectionString = ""
+        self.__log: Logger = log
+
+    @property
+    def log(self):
+        return self.__log
+
+    @log.setter
+    def log(self, value: Logger):
+        self.__log = value
 
     def load(self, filename):
         fd = None
@@ -29,11 +43,15 @@ class Config:
                 if data.get(const.SORTING_KEY):
                     self.SortingMethod = SortingMethods(data.get(const.SORTING_KEY))
 
+                if data.get(const.CS_KEY):
+                    self.ConnectionString = data.get(const.CS_KEY)
+
                 if data.get(const.HOSTS_KEY):
                     hosts = data.get(const.HOSTS_KEY)
                     if hosts is not None:
                         for h in hosts:
                             host = Host()
+                            host.connectionstring = self.ConnectionString
                             if h.get(const.ADDRESS_KEY):
                                 host.Address = h.get(const.ADDRESS_KEY)
                             if h.get(const.PORT_KEY):
@@ -42,8 +60,6 @@ class Config:
                                 host.UserName = h.get(const.USERNAME_KEY)
                             if h.get(const.PASSWORD_KEY):
                                 host.Password = h.get(const.PASSWORD_KEY)
-                            if h.get(const.SENDTYPE_KEY):
-                                host.SendType =  SendTypes(h.get(const.SENDTYPE_KEY))
                             if h.get(const.CERTPATH_KEY):
                                 host.CertPath = h.get(const.CERTPATH_KEY)
                             if h.get(const.REMOTE_PATH_KEY):
@@ -52,6 +68,18 @@ class Config:
                                 host.ConnectTimeout = h.get(const.TIMEOUT_KEY)
                             if h.get(const.COMPRESSION_KEY):
                                 host.Compression = h.get(const.COMPRESSION_KEY)
+                            if h.get(const.SENDTYPE_KEY):
+                                host.SendType = SendTypes(h.get(const.SENDTYPE_KEY))
+                            if h.get(const.MAXTRYCOUNT_KEY):
+                                host.SendType = h.get(const.MAXTRYCOUNT_KEY)
+                            if h.get(const.ACTIONTYPE_KEY):
+                                action = h.get(const.ACTIONTYPE_KEY)
+                                if action.get(const.ACTIONCOMMAND_KEY):
+                                    h.FaiAction.Command = action.get(const.ACTIONCOMMAND_KEY)
+                                if action.get(const.ACTIONARGS_KEY):
+                                    h.FaiAction.Args = action.get(const.ACTIONARGS_KEY)
+                                if action.get(const.ACTIONTYPE_KEY):
+                                    h.FaiAction.Type = actiontypes.ActionTypes(action.get(const.ACTIONTYPE_KEY))
 
                             if host.Address:
                                 self.RemoteHosts.append(host)
@@ -63,14 +91,25 @@ class Config:
             if fd is not None:
                 fd.close()
 
+    def validate(self) -> bool:
+        message = ""
+        if not self.InputFolder:
+            message = "Input folder must be provided"
+        elif not os.path.exists(self.InputFolder):
+            message = "Input folder does not exists"
 
+        if len(message) > 0:
+            self.__log.write(LogTypes.ERROR, message)
+        else:
+            self.__log.write(LogTypes.INFO, "Configuration loaded successfully")
+        return len(message) == 0
 
     def parsearguments(self):
         parser = ArgumentParser(
             usage="python %(prog)scdraggregator.py [PROCESS OPTIONS]|[TEST OPTIONS]",
             description="Examine over cdr files and generate aggregated data ",
             allow_abbrev=False,
-            epilog= """
+            epilog="""
                 Examples:
                 1.  The following example filters .cdr files which is contains '15' in name in the /home/input/test folder and generate output files for "query times" and "reason code" to /home/output.
                     Once all files processed then program terminates 

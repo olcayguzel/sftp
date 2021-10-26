@@ -1,15 +1,15 @@
 import datetime
 import os
-import threading
 import time
+from threading import Thread
 
 class Watcher:
 	def __init__(self):
 		self.__folder:str = os.getcwd()
 		self.__onnewhandler = None
-		self.__worker:threading.Thread = None
-		self.__running:bool = False
-		self.__lastchecktime:datetime = time.time_ns()
+        self.__worker: Thread
+        self.__running: bool = False
+        self.__lastchecktime: datetime = time.time()
 
 	@property
 	def running(self) -> bool:
@@ -51,8 +51,8 @@ class Watcher:
 	def start(self):
 		if not self.__running:
 			try:
-				self.__worker = threading.Thread(target = self.__start)
-				self.__running = True
+                self.__worker = Thread(target=self.__start, daemon=True)
+                self.__running = True
 				self.__worker.start()
 			except Exception as ex:
 				print(ex)

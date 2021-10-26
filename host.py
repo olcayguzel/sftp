@@ -1,40 +1,93 @@
 import os
 import time
-
 from paramiko import SSHException, AuthenticationException, PasswordRequiredException
 from pysftp import Connection, CnOpts
 from threading import Thread, Lock
 from ftplib import FTP
+from failaction import FailAction
 from sendtypes import SendTypes
 from logger import Logger, LogTypes
 from process import Process
+from actiontypes import ActionTypes
+from database import Database
 import const
 
 mutex = Lock()
 
+
 class Host:
     def __init__(self):
-        self.Address = ""
-        self.Port:int = 22
-        self.SendType:SendTypes = SendTypes.SFTP
-        self.UserName = ""
-        self.Password = ""
+        self.Address: str = ""
+        self.Port: int = 22
+        self.UserName: str = ""
+        self.Password: str = ""
         self.CertPath = None
-        self.RemotePath = ""
-        self.ConnectTimeout:int = 10
-        self.Compression:bool = False
-        self.MaxTryCount:int = 5
-        self.MaxTryAction:int = None
+        self.RemotePath: str = ""
+        self.ConnectTimeout: int = 10
+        self.Compression: bool = False
+        self.MaxTryCount: int = 5
+        self.SendType: SendTypes = SendTypes.SFTP
+        self.FailAction: FailAction = FailAction()
+        self.__connectionstring = ""
+        self.__trycount: int = 0
+        self.__lastprocessedfilename: str = ""
+        self.__lastprocessedfiledate: int = 0
         self.__files = []
-        self.__connected:bool = False
-        self.__running:bool = False
+        self.__connected: bool = False
+        self.__running: bool = False
         self.__sftpoptions = CnOpts()
         self.__sftp = None
         self.__ftp = None
         self.__rsync = None
         self.__logger = Logger()
-        self.__worker = Thread(target=self.__start)
-        self.__lifechecker = Thread(target=self.__keepalive)
+        self.__db: Database = Database()
+        self.__worker = Thread(target=self.__start, daemon=True)
+        self.__lifechecker = Thread(target=self.__keepalive, daemon=True)
+
+    @property
+    def connected(self) -> bool:
+        return self.__connected
+
+    @property
+    def running(self) -> bool:
+        return self.__running
+
+    @property
+    def lastprocessedfile(self) -> tuple():
+        return (self.__lastprocessedfilename, self.__lastprocessedfiledate)
+
+    @lastprocessedfile.setter
+    def lastprocessedfile(self, value: tuple()):
+        self.__lastprocessedfilename = str(value[0])
+        self.__lastprocessedfiledate = int(value[1])
+
+    @property
+    def connectionstring(self) -> str:
+        return self.__connectionstring
+
+    @connectionstring.setter
+    def connectionstring(self, value: str):
+        self.__connectionstring = value
+
+    def __executeprocess(self, file):
+        try:
+            action = Process()
+            action.path = self.FailAction.Command
+            action.arguments = self.FailAction.Args
+            action.start(False)
+            action.wait()
+        except Exception as ex:
+            self.__logger.write(LogTypes.ERROR, f"An error occured during execute fail action command", self.Address)
+
+    def __executequery(self, file):
+        self.__db.connect()
+        self.__db.query(self.FailAction.Command, self.FailAction.Args)
+
+    def __doaction(self, file: str):
+        if self.FailAction.Type == ActionTypes.ExecuteApp:
+            self.__executeprocess(file)
+        elif self.FailAction.Type.ExecuteQuery:
+            self.__executequery(file)
 
     def storelastsentfile(self, filename, log):
         fd = None
@@ -45,27 +98,33 @@ class Host:
             fileinfo = os.stat(filename)
             for line in fd.readlines():
                 data = line.split("|")
-                print(line, data[0], self.Address)
                 if data[0] != self.Address:
                     lines.append(line)
                 else:
                     content = const.DAT_FILE_FORMAT.replace("[HOST]", self.Address)
+                    content = content.replace("[FOLDER]", self.RemotePath)
                     content = content.replace("[NAME]", os.path.basename(filename))
                     content = content.replace("[DATE]", str(fileinfo.st_ctime_ns))
                     lines.append(content)
             if len(lines) == 0:
                 content = const.DAT_FILE_FORMAT.replace("[HOST]", self.Address)
+                content = content.replace("[FOLDER]", self.RemotePath)
                 content = content.replace("[NAME]", os.path.basename(filename))
                 content = content.replace("[DATE]", str(fileinfo.st_ctime_ns))
                 lines.append(content)
-
             if fd.writable():
+                fd.seek(0)
+                fd.truncate()
+                fd.flush()
                 fd.write("\n".join(lines))
                 fd.flush()
                 log.write(LogTypes.DEBUG, f"Last processed file updated. File name: {filename}")
+                self.__lastprocessedfilename = os.path.basename(filename)
+                self.__lastprocessedfiledate = fileinfo.st_ctime_ns
             else:
                 log.write(LogTypes.ERROR,
-                          f"Last processed file could not update. File is not writable. Possible there is no write permission. File name: {filename}")
+                          f"Last processed file could not update. File is not writable. Possible there is no write permission. File name: {filename}",
+                          self.Address)
         except FileNotFoundError:
             fd = None
         except Exception as ex:
@@ -74,14 +133,6 @@ class Host:
             if fd is not None:
                 fd.close()
             mutex.release()
-
-    @property
-    def connected(self) -> bool:
-        return self.__connected
-
-    @property
-    def cunning(self) -> bool:
-        return self.__running
 
     def __keepalive(self):
         try:
@@ -98,7 +149,7 @@ class Host:
                     break
                 time.sleep(5)
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"Unexpected error occurred. Error: {ex}")
+            self.__logger.write(LogTypes.ERROR, f"Unexpected error occurred. Error: {ex}", self.Address)
             self.__connected = False
 
     def __connectftp(self):
@@ -152,7 +203,7 @@ class Host:
         try:
             fd = open(source, "rb")
             if self.__ftp is not None:
-                self.__ftp.storbinary(cmd=f"STOR {source}", fp=fd )
+                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd)
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
         except Exception as ex:
@@ -198,13 +249,17 @@ class Host:
         while True:
             try:
                 if len(self.__files) > 0:
+                    self.__trycount += 1
                     if not self.__connected:
                         self.__connect()
                     file = self.__files[0]
                     if self.__send(file):
                         self.__files.pop(0)
+                        self.__trycount = 0
+                    elif self.__trycount >= self.MaxTryCount:
+                        self.__doaction(self.__files.pop(0))
             except Exception as ex:
-                self.__logger.write(LogTypes.ERROR, ex)
+                self.__logger.write(LogTypes.ERROR, ex, self.Address)
 
     def __start(self):
         self.__running = True
@@ -212,7 +267,9 @@ class Host:
         self.__running = False
 
     def addtoqueue(self, file):
-        self.__files.append(file)
+        stat = os.stat(file)
+        if stat.st_ctime_ns > self.__lastprocessedfiledate and file.__eq__(self.__lastprocessedfilename) == False:
+            self.__files.append(file)
         if not self.__worker.is_alive():
             self.__worker.start()
 
@@ -221,10 +278,10 @@ class Host:
             if self.__sftp is not None:
                 self.__sftp.close()
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"SFTP Connection could not close on {self.Address}. Error: {ex}")
+            self.__logger.write(LogTypes.ERROR, f"SFTP Connection could not close. Error: {ex}", self.Address)
 
         try:
             if self.__ftp is not None:
                 self.__ftp.close()
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"FTP connection could not close on {self.Address}. Error: {ex}")
+            self.__logger.write(LogTypes.ERROR, f"FTP connection could not close. Error: {ex}", self.Address)
