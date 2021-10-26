@@ -21,12 +21,14 @@ CERTPATH_KEY = "CertPath"
 REMOTE_PATH_KEY = "RemotePath"
 TIMEOUT_KEY = "ConnectTimeout"
 COMPRESSION_KEY = "Compression"
+DELETEZIPFILE_KEY = "DeleteZipFile"
 MAXTRYCOUNT_KEY = "MaxTryCount"
 FAILACTON_KEY = "FailAction"
 ACTIONTYPE_KEY = "Type"
 ACTIONCOMMAND_KEY = "Command"
-ACTIONARGS_KEY = "Args"
+ACTIONARGS_KEY ="Args"
+
 
 ##########################      HOST     #####################################
 DAT_FILE_NAME = "filecollector.dat"
-DAT_FILE_FORMAT = "[HOST][FOLDER]|[NAME]|[DATE]"
+DAT_FILE_FORMAT = "[HOST]|[FOLDER]|[NAME]|[DATE]"

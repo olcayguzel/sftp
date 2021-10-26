@@ -10,39 +10,43 @@ from logger import Logger, LogTypes
 from process import Process
 from actiontypes import ActionTypes
 from database import Database
+from compressfile import CompressFile
+from configuration import Config
 import const
 
 mutex = Lock()
 
-
 class Host:
-    def __init__(self):
-        self.Address: str = ""
-        self.Port: int = 22
-        self.UserName: str = ""
-        self.Password: str = ""
+    def __init__(self, config:Config):
+        self.Address:str = ""
+        self.Port:int = 22
+        self.UserName:str = ""
+        self.Password:str = ""
         self.CertPath = None
-        self.RemotePath: str = ""
-        self.ConnectTimeout: int = 10
-        self.Compression: bool = False
-        self.MaxTryCount: int = 5
-        self.SendType: SendTypes = SendTypes.SFTP
-        self.FailAction: FailAction = FailAction()
-        self.__connectionstring = ""
-        self.__trycount: int = 0
-        self.__lastprocessedfilename: str = ""
-        self.__lastprocessedfiledate: int = 0
+        self.RemotePath:str = ""
+        self.ConnectTimeout:int = 10
+        self.Compression:bool = False
+        self.DeleteZipFile:bool = False
+        self.MaxTryCount:int = 5
+        self.SendType:SendTypes = SendTypes.SFTP
+        self.FailAction:FailAction = FailAction()
+        self.__trycount:int = 0
+        self.__lastprocessedfilename:str = ""
+        self.__lastprocessedfiledate:int = 0
         self.__files = []
-        self.__connected: bool = False
-        self.__running: bool = False
+        self.__connected:bool = False
+        self.__running:bool = False
         self.__sftpoptions = CnOpts()
         self.__sftp = None
         self.__ftp = None
         self.__rsync = None
+        self.__config:Config = config
         self.__logger = Logger()
-        self.__db: Database = Database()
-        self.__worker = Thread(target=self.__start, daemon=True)
-        self.__lifechecker = Thread(target=self.__keepalive, daemon=True)
+        self.__db:Database = Database()
+        self.__db.log = self.__logger
+        self.__db.connectionstring = self.__config.ConnectionString
+        self.__worker = Thread(target=self.__start)
+        self.__lifechecker = Thread(target=self.__keepalive)
 
     @property
     def connected(self) -> bool:
@@ -51,23 +55,28 @@ class Host:
     @property
     def running(self) -> bool:
         return self.__running
-
+    
     @property
     def lastprocessedfile(self) -> tuple():
         return (self.__lastprocessedfilename, self.__lastprocessedfiledate)
-
+    
     @lastprocessedfile.setter
-    def lastprocessedfile(self, value: tuple()):
+    def lastprocessedfile(self, value:tuple()):
         self.__lastprocessedfilename = str(value[0])
         self.__lastprocessedfiledate = int(value[1])
 
-    @property
-    def connectionstring(self) -> str:
-        return self.__connectionstring
+    def __deletezipfile(self, file):
+        try:
+            os.remove(file)
+        except Exception as ex:
+            self.__logger.write(LogTypes.ERROR, f"File ({file}) could not been deleted. Error: {ex}", self.Address)
 
-    @connectionstring.setter
-    def connectionstring(self, value: str):
-        self.__connectionstring = value
+    def __compressfile(self, file):
+        compress = CompressFile()
+        compress.filename = file
+        compress.level = 9
+        compress.compress()
+        return compress.outputfilename
 
     def __executeprocess(self, file):
         try:
@@ -77,22 +86,27 @@ class Host:
             action.start(False)
             action.wait()
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"An error occured during execute fail action command", self.Address)
+            self.__logger.write(LogTypes.ERROR, f"An error occured during execute fail action command. Error: {ex}", self.Address)
 
     def __executequery(self, file):
         self.__db.connect()
         self.__db.query(self.FailAction.Command, self.FailAction.Args)
 
-    def __doaction(self, file: str):
+    def __doaction(self, file:str):
         if self.FailAction.Type == ActionTypes.ExecuteApp:
             self.__executeprocess(file)
         elif self.FailAction.Type.ExecuteQuery:
             self.__executequery(file)
 
-    def storelastsentfile(self, filename, log):
+    def __storelastsentfile(self, filename, log):
         fd = None
         try:
             mutex.acquire(blocking=True)
+            if not os.path.exists(const.DAT_FILE_NAME):
+                tmp = open(const.DAT_FILE_NAME, "w")
+                tmp.flush()
+                tmp.close()
+
             fd = open(const.DAT_FILE_NAME, "r+")
             lines = list()
             fileinfo = os.stat(filename)
@@ -118,13 +132,12 @@ class Host:
                 fd.flush()
                 fd.write("\n".join(lines))
                 fd.flush()
-                log.write(LogTypes.DEBUG, f"Last processed file updated. File name: {filename}")
+                log.write(LogTypes.DEBUG, f"Last processed file updated. File name: {filename}", self.Address)
                 self.__lastprocessedfilename = os.path.basename(filename)
                 self.__lastprocessedfiledate = fileinfo.st_ctime_ns
             else:
                 log.write(LogTypes.ERROR,
-                          f"Last processed file could not update. File is not writable. Possible there is no write permission. File name: {filename}",
-                          self.Address)
+                          f"Last processed file could not update. File is not writable. Possible there is no write permission. File name: {filename}", self.Address)
         except FileNotFoundError:
             fd = None
         except Exception as ex:
@@ -143,7 +156,7 @@ class Host:
                         self.__connected = True
                 elif self.SendType == SendTypes.SFTP:
                     if self.__sftp is not None:
-                        self.__sftp.exits(self.RemotePath)
+                        self.__sftp.exists(self.RemotePath)
                         self.__connected = True
                 else:
                     break
@@ -188,12 +201,13 @@ class Host:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during connect. Error: {ex}", self.Address)
         finally:
             if not self.__lifechecker.is_alive():
-                self.__lifechecker.start()
+                pass
+               # self.__lifechecker.start()
 
     def __sendrsync(self):
-        self.__r = Process()
+        self.__rsync = Process()
         self.__rsync.path = "rsync"
-        self.__rsync.arguments = ""
+        self.__rsync.arguments = f"-rt --contimeout={self.ConnectTimeout} --compress-level=9 --include={self.__config.InputFilePattern} "
         self.__rsync.start()
 
     def __put_ftp(self, source:str) -> bool:
@@ -203,7 +217,7 @@ class Host:
         try:
             fd = open(source, "rb")
             if self.__ftp is not None:
-                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd)
+                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd )
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
         except Exception as ex:
@@ -214,9 +228,10 @@ class Host:
         return result
 
     def __put_sftp(self, source:str, target:str) -> bool:
-        filename = os.path.basename(source)
+        filename = ""
         result = False
         try:
+            filename = os.path.basename(source)
             if self.__sftp is not None:
                 self.__sftp.put(localpath=source, remotepath=target)
                 result = True
@@ -224,25 +239,30 @@ class Host:
         except IOError:
             self.__logger.write(LogTypes.ERROR, f"Remote folder ({self.RemotePath}) does not exists or unreachable", self.Address)
         except Exception as ex:
-            self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}) via SFTP protocol. Error: {ex}", self.Address)
+            self.__logger.write(LogTypes.ERROR, f"An error occurred during send file via SFTP protocol. Error: {ex}", self.Address)
         return result
 
     def __send(self, source:str) ->bool:
-        filename = os.path.basename(source)
         result = False
+        sentfilename = source
         try:
+            if self.Compression:
+                sentfilename = self.__compressfile(source)
+            filename = os.path.basename(source)
             remoteFile = self.RemotePath
             remoteFile += "/" + filename
             if self.SendType == SendTypes.FTP:
-                result = self.__put_ftp(source)
+                result = self.__put_ftp(sentfilename)
             elif self.SendType == SendTypes.SFTP:
-                result = self.__put_sftp(source, remoteFile)
+                result = self.__put_sftp(sentfilename, remoteFile)
             else:
                 self.__sendrsync()
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}). Error: {ex}", self.Address)
         if result:
-            self.storelastsentfile(source, self.__logger)
+            self.__storelastsentfile(source, self.__logger)
+            if self.Compression and self.DeleteZipFile:
+                self.__deletezipfile(sentfilename)
         return result
 
     def __process(self):
@@ -258,6 +278,8 @@ class Host:
                         self.__trycount = 0
                     elif self.__trycount >= self.MaxTryCount:
                         self.__doaction(self.__files.pop(0))
+                    else:
+                        time.sleep(5)
             except Exception as ex:
                 self.__logger.write(LogTypes.ERROR, ex, self.Address)
 
@@ -270,8 +292,8 @@ class Host:
         stat = os.stat(file)
         if stat.st_ctime_ns > self.__lastprocessedfiledate and file.__eq__(self.__lastprocessedfilename) == False:
             self.__files.append(file)
-        if not self.__worker.is_alive():
-            self.__worker.start()
+            if not self.__worker.is_alive():
+                self.__worker.start()
 
     def __close(self):
         try:

@@ -9,22 +9,22 @@ import json
 import const
 from logger import Logger, LogTypes
 
-
 class Config:
-    def __init__(self, log: Logger = None):
-        self.InputFolder: str = os.getcwd()
+    def __init__(self, log:Logger = None):
+        self.InputFolder:str = os.getcwd()
+        self.InputFilePattern = "*.cdr"
         self.SortingMethod = SortingMethods.ByName
         self.RemoteHosts = []
         self.LogFolder = const.LOG_FOLDER_PATH
         self.ConnectionString = ""
-        self.__log: Logger = log
+        self.__log:Logger = log
 
     @property
     def log(self):
         return self.__log
 
     @log.setter
-    def log(self, value: Logger):
+    def log(self, value:Logger):
         self.__log = value
 
     def load(self, filename):
@@ -50,8 +50,7 @@ class Config:
                     hosts = data.get(const.HOSTS_KEY)
                     if hosts is not None:
                         for h in hosts:
-                            host = Host()
-                            host.connectionstring = self.ConnectionString
+                            host = Host(self)
                             if h.get(const.ADDRESS_KEY):
                                 host.Address = h.get(const.ADDRESS_KEY)
                             if h.get(const.PORT_KEY):
@@ -68,10 +67,12 @@ class Config:
                                 host.ConnectTimeout = h.get(const.TIMEOUT_KEY)
                             if h.get(const.COMPRESSION_KEY):
                                 host.Compression = h.get(const.COMPRESSION_KEY)
+                            if h.get(const.DELETEZIPFILE_KEY):
+                                host.DeleteZipFile = h.get(const.DELETEZIPFILE_KEY)
                             if h.get(const.SENDTYPE_KEY):
-                                host.SendType = SendTypes(h.get(const.SENDTYPE_KEY))
+                                host.SendType =  SendTypes(h.get(const.SENDTYPE_KEY))
                             if h.get(const.MAXTRYCOUNT_KEY):
-                                host.SendType = h.get(const.MAXTRYCOUNT_KEY)
+                                host.SendType =  h.get(const.MAXTRYCOUNT_KEY)
                             if h.get(const.ACTIONTYPE_KEY):
                                 action = h.get(const.ACTIONTYPE_KEY)
                                 if action.get(const.ACTIONCOMMAND_KEY):
@@ -97,7 +98,7 @@ class Config:
             message = "Input folder must be provided"
         elif not os.path.exists(self.InputFolder):
             message = "Input folder does not exists"
-
+        
         if len(message) > 0:
             self.__log.write(LogTypes.ERROR, message)
         else:
@@ -109,7 +110,7 @@ class Config:
             usage="python %(prog)scdraggregator.py [PROCESS OPTIONS]|[TEST OPTIONS]",
             description="Examine over cdr files and generate aggregated data ",
             allow_abbrev=False,
-            epilog="""
+            epilog= """
                 Examples:
                 1.  The following example filters .cdr files which is contains '15' in name in the /home/input/test folder and generate output files for "query times" and "reason code" to /home/output.
                     Once all files processed then program terminates 

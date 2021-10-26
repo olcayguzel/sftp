@@ -2,4 +2,5 @@ from enum import Enum
 
 class SortingMethods(Enum):
     ByName = 1
-    NameAndDate = 2
+    ByDate = 2
+    NameAndDate = 3

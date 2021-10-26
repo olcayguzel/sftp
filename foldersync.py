@@ -1,17 +1,16 @@
 import os
-import time
 from configuration import Config
 from watcher import Watcher
-from compressfile import CompressFile
 from logger import Logger, LogTypes
 from const import DAT_FILE_NAME
-
+from sortingmethods import SortingMethods
+from pathlib import Path
 
 class FolderSync:
     def __init__(self):
-        self.__log: Logger = Logger()
-        self.__config: Config = Config()
-        self.__watch: Watcher == Watcher()
+        self.__log:Logger = Logger()
+        self.__config:Config = Config()
+        self.__watch:Watcher = Watcher()
         self.__lastprocessedfiledate = 0
         self.__lastprocessedfilename = ""
 
@@ -27,7 +26,6 @@ class FolderSync:
                     for line in fd.readlines():
                         if len(line) > 0:
                             data = line.split("|")
-                            print(data)
                             host = str(data[0])
                             folder = str(data[1])
                             name = str(data[2])
@@ -35,13 +33,11 @@ class FolderSync:
                             if host not in result:
                                 result[host] = dict()
                             if folder not in result[host]:
-                                result[host][folder] = (name, date)
+                                result[host][folder] = (name, int(date))
                 else:
-                    self.__log.write(LogTypes.DEBUG,
-                                     "Could not detect last processed file. All files in folder will be enqueue to processed")
+                    self.__log.write(LogTypes.DEBUG, "Could not detect last processed file. All files in folder will be enqueue to processed")
             else:
-                self.__log.write(LogTypes.INFO,
-                                 "Could not detect last processed file(s). All files in folder will be enqueue to processed")
+                self.__log.write(LogTypes.INFO, "Could not detect last processed file(s). All files in folder will be enqueue to processed")
         except Exception as ex:
             self.__log.write(LogTypes.ERROR, ex)
         finally:
@@ -51,36 +47,32 @@ class FolderSync:
 
     def __getnewfiles(self):
         cdrfiles = dict()
-        with os.scandir(self.__config.InputFolder) as files:
-            for file in files:
-                stats = file.stat(follow_symlinks=False)
-                if stats.st_ctime_ns > self.__lastprocessedfiledate and file.name.__eq__(
-                        self.__lastprocessedfilename) == False:
-                    cdrfiles[file.name] = stats.st_ctime_ns
-        cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: t[1]))
+        for file in Path(self.__config.InputFolder).glob(self.__config.InputFilePattern):
+            stats = os.stat(os.path.join(self.__config.InputFolder, file.name))
+            if stats.st_ctime_ns > self.__lastprocessedfiledate and file.name.__eq__(self.__lastprocessedfilename) == False:
+                cdrfiles[file.name] = stats.st_ctime_ns
+
+        if self.__config.SortingMethod == SortingMethods.ByName:
+            cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: t[0]))
+        elif self.__config.SortingMethod == SortingMethods.ByDate:
+            cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: t[1]))
+        else:
+            cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: (t[0], t[1])))
         for file in cdrfiles:
             self.__sendfile(os.path.join(self.__config.InputFolder, file[0]))
-            time.sleep(10)
-
-    def __compressfile(self, file):
-        compress = CompressFile()
-        compress.filename = file
-        compress.level = 9
-        compress.compress()
-        return compress.outputfilename
 
     def __sendfile(self, file):
         if len(self.__config.RemoteHosts) > 0:
             for host in self.__config.RemoteHosts:
-                if host.Compression:
-                    file = self.__compressfile(file)
                 host.addtoqueue(file)
 
-    def __watch(self):
+    def __startwatch(self):
         self.__watch.folder = self.__config.InputFolder
+        self.__watch.config = self.__config
         self.__watch.onnew = self.__sendfile
         self.__watch.start()
-
+        self.__log.write(LogTypes.DEBUG, f"Folder watch starting")
+    
     def __setlastprocessedfiles(self):
         filenames = self.__getlastprocessedfiles()
         last_date = -1
@@ -102,11 +94,10 @@ class FolderSync:
         self.__config.load(filename="./config.json")
         self.__config.log = self.__log
         if self.__config.validate():
+            self.__startwatch()
             self.__setlastprocessedfiles()
             self.__getnewfiles()
-            self.__watch()
-
 
 if __name__ == '__main__':
-    syncer = FolderSync()
-    syncer.initialize()
+    sync = FolderSync()
+    sync.initialize()
