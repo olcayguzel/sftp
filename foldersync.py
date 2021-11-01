@@ -8,15 +8,17 @@ from pathlib import Path
 
 class FolderSync:
     def __init__(self):
-        self.__log:Logger = Logger()
-        self.__config:Config = Config()
-        self.__watch:Watcher = Watcher()
+        self.__log: Logger = Logger()
+        self.__config: Config = Config()
+        self.__watch: Watcher = Watcher()
         self.__lastprocessedfiledate = 0
         self.__lastprocessedfilename = ""
 
-    def __getlastprocessedfiles(self):
-        date: 0
-        name: ""
+    def __del__(self):
+        if self.__watch is not None:
+            self.__watch.stop()
+
+    def __getlastprocessedfiles(self) -> dict:
         fd = None
         result = dict()
         try:
@@ -57,12 +59,13 @@ class FolderSync:
         elif self.__config.SortingMethod == SortingMethods.ByDate:
             cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: t[1]))
         else:
-            cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: (t[0], t[1])))
+            cdrfiles = list(sorted(cdrfiles.items(), key=lambda t: (t[1], t[0])))
         for file in cdrfiles:
             self.__sendfile(os.path.join(self.__config.InputFolder, file[0]))
 
     def __sendfile(self, file):
         if len(self.__config.RemoteHosts) > 0:
+            self.__log.write(LogTypes.DEBUG, f"New file detected. {file}")
             for host in self.__config.RemoteHosts:
                 host.addtoqueue(file)
 
@@ -71,7 +74,7 @@ class FolderSync:
         self.__watch.config = self.__config
         self.__watch.onnew = self.__sendfile
         self.__watch.start()
-        self.__log.write(LogTypes.DEBUG, f"Folder watch starting")
+        self.__log.write(LogTypes.DEBUG, f"Folder watch starting: {self.__config.InputFolder}")
     
     def __setlastprocessedfiles(self):
         filenames = self.__getlastprocessedfiles()
@@ -91,12 +94,16 @@ class FolderSync:
                 self.__lastprocessedfilename = file_name
 
     def initialize(self):
-        self.__config.load(filename="./config.json")
-        self.__config.log = self.__log
-        if self.__config.validate():
-            self.__startwatch()
-            self.__setlastprocessedfiles()
-            self.__getnewfiles()
+        err = self.__config.load(filename="config.json")
+        if err is not None and len(err) > 0:
+            self.__log.write(LogTypes.ERROR, f"An error occurred during read configuration file. Error: {err}")
+        else:
+            self.__config.log = self.__log
+            if self.__config.validate():
+                self.__startwatch()
+                self.__setlastprocessedfiles()
+                self.__getnewfiles()
+                self.__watch.join()
 
 if __name__ == '__main__':
     sync = FolderSync()

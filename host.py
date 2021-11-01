@@ -11,23 +11,22 @@ from process import Process
 from actiontypes import ActionTypes
 from database import Database
 from compressfile import CompressFile
-from configuration import Config
 import const
 
 mutex = Lock()
 
 class Host:
-    def __init__(self, config:Config):
-        self.Address:str = ""
-        self.Port:int = 22
-        self.UserName:str = ""
-        self.Password:str = ""
+    def __init__(self, config):
+        self.Address: str = ""
+        self.Port: int = 22
+        self.UserName: str = ""
+        self.Password: str = ""
         self.CertPath = None
-        self.RemotePath:str = ""
-        self.ConnectTimeout:int = 10
-        self.Compression:bool = False
-        self.DeleteZipFile:bool = False
-        self.MaxTryCount:int = 5
+        self.RemotePath: str = ""
+        self.ConnectTimeout: int = 10
+        self.Compression: bool = False
+        self.DeleteZipFile: bool = False
+        self.MaxTryCount: int = 5
         self.SendType:SendTypes = SendTypes.SFTP
         self.FailAction:FailAction = FailAction()
         self.__trycount:int = 0
@@ -40,7 +39,7 @@ class Host:
         self.__sftp = None
         self.__ftp = None
         self.__rsync = None
-        self.__config:Config = config
+        self.__config = config
         self.__logger = Logger()
         self.__db:Database = Database()
         self.__db.log = self.__logger
@@ -80,17 +79,21 @@ class Host:
 
     def __executeprocess(self, file):
         try:
-            action = Process()
-            action.path = self.FailAction.Command
-            action.arguments = self.FailAction.Args
-            action.start(False)
-            action.wait()
+            if len(self.FailAction.Command) > 0:
+                action = Process()
+                action.path = self.FailAction.Command
+                action.arguments = self.FailAction.Args
+                action.start(False)
+                action.wait()
+            else:
+                self.__logger.write(LogTypes.ERROR, "Command is empty. No command executed", self.Address)
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occured during execute fail action command. Error: {ex}", self.Address)
 
     def __executequery(self, file):
-        self.__db.connect()
-        self.__db.query(self.FailAction.Command, self.FailAction.Args)
+        if len(self.__db.connectionstring) > 0:
+            self.__db.connect()
+            self.__db.query(self.FailAction.Command, self.FailAction.Args)
 
     def __doaction(self, file:str):
         if self.FailAction.Type == ActionTypes.ExecuteApp:
@@ -202,22 +205,58 @@ class Host:
         finally:
             if not self.__lifechecker.is_alive():
                 pass
-               # self.__lifechecker.start()
+            # self.__lifechecker.start()
 
-    def __sendrsync(self):
-        self.__rsync = Process()
-        self.__rsync.path = "rsync"
-        self.__rsync.arguments = f"-rt --contimeout={self.ConnectTimeout} --compress-level=9 --include={self.__config.InputFilePattern} "
-        self.__rsync.start()
+    def __sendrsync(self, source: str, target: str):
+        result = False
+        filename = os.path.basename(source)
+        try:
+            self.__rsync = Process()
+            self.__rsync.path = "rsync"
+            self.__rsync.arguments = ["--archive", "--times", "--quiet", f"--password-file={self.Password}",
+                                      "--compress-level=9", f"-contimeout={self.ConnectTimeout}", source,
+                                      f"{self.UserName}@{self.Address}:{target}"]
+            self.__rsync.start()
+            self.__rsync.wait()
+            result = self.__rsync.exitcode == 0
+            if not result:
+                code = self.__rsync.exitcode
+                message = ""
+                if code == 1:
+                    message = f"Syntax or usage error.Arguments: {self.__rsync.arguments}"
+                elif code == 2:
+                    message = "Protocol incompatibility"
+                elif code == 3:
+                    message = "Errors selected input/output files, dirs"
+                elif code == 4:
+                    message = "Unsupported action"
+                elif code == 5:
+                    message = "Error starting client-server protocol"
+                elif code == 10:
+                    message = "Error in Socket I/O"
+                elif code == 11:
+                    message = "Error in file I/O"
+                elif code == 22:
+                    message = "Error allocation core memory buffers"
+                elif code == 30:
+                    message = "Timeout in data send/receive"
+            self.__logger.write(LogTypes.ERROR,
+                                f"An error occurred during send file ({filename}) via RSYNC. Error: {message}",
+                                self.Address)
 
-    def __put_ftp(self, source:str) -> bool:
+        except Exception as ex:
+            self.__logger.write(LogTypes.ERROR,
+                                f"An error occurred during send file ({filename}) via RSYNC. Error: {ex}", self.Address)
+        return result
+
+    def __put_ftp(self, source: str) -> bool:
         fd = None
         filename = os.path.basename(source)
         result = False
         try:
             fd = open(source, "rb")
             if self.__ftp is not None:
-                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd )
+                self.__ftp.storbinary(cmd=f"STOR {filename}", fp=fd)
                 result = True
                 self.__logger.write(LogTypes.DEBUG, f"File ({filename}) has been sent to ({self.RemotePath})", self.Address)
         except Exception as ex:
@@ -248,7 +287,7 @@ class Host:
         try:
             if self.Compression:
                 sentfilename = self.__compressfile(source)
-            filename = os.path.basename(source)
+            filename = os.path.basename(sentfilename)
             remoteFile = self.RemotePath
             remoteFile += "/" + filename
             if self.SendType == SendTypes.FTP:
@@ -256,7 +295,7 @@ class Host:
             elif self.SendType == SendTypes.SFTP:
                 result = self.__put_sftp(sentfilename, remoteFile)
             else:
-                self.__sendrsync()
+                result = self.__sendrsync(sentfilename, remoteFile)
         except Exception as ex:
             self.__logger.write(LogTypes.ERROR, f"An error occurred during send file ({filename}). Error: {ex}", self.Address)
         if result:

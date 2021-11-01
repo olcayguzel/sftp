@@ -61,13 +61,17 @@ class Watcher:
 	def start(self):
 		if not self.__running:
 			try:
-				self.__worker = Thread(target = self.__start, daemon= True)
-				self.__running = True
-				self.__worker.start()
-			except Exception as ex:
-				print(ex)
-				self.__running = False
+                self.__worker = Thread(target=self.__start, daemon=True)
+                self.__running = True
+                self.__worker.start()
+            except Exception as ex:
+                print(ex)
+                self.__running = False
 
-	def stop(self):
-		self.__running = False
-		self.__worker = None
+    def stop(self):
+        self.__running = False
+        self.__worker = None
+
+    def join(self):
+        if self.__worker is not None and self.__running:
+            self.__worker.join()

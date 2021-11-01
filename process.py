@@ -4,31 +4,33 @@ class Process:
 	def __init__(self):
 		self.__path:str = ""
 		self.__arguments:str = ""
-		self.__input = None
-		self.__output = None
-		self.__error = None
-		self.__running:bool = False
 		self.__process = None
-		self.__pid:int = 0
-		self.__exitcode = None
-		self.__workeroutput = None
-		self.__workererror = None
-		self.__outputhandler:callable(str) = None
-		self.__errorhandler:callable(str) = None
+        self.__pid: int = 0
+        self.__workeroutput = None
+        self.__workererror = None
+        self.__outputhandler: callable(str) = None
+        self.__errorhandler: callable(str) = None
 
-	@property
-	def path(self):
-		return self.__path
+    @property
+    def path(self):
+        return self.__path
 
-	@path.setter
-	def path(self, value:str):
-		self.__path = value
+    @property
+    def exitcode(self) -> int:
+        code = -1
+        if self.__process is not None:
+            code = self.__process.returncode
+        return code
 
-	@property
-	def arguments(self):
-		return self.__arguments
+    @path.setter
+    def path(self, value: str):
+        self.__path = value
 
-	@arguments.setter
+    @property
+    def arguments(self):
+        return self.__arguments
+
+    @arguments.setter
 	def arguments(self, value:str):
 		self.__arguments = value
 
@@ -54,7 +56,8 @@ class Process:
 				if self.__process.stdout.readable():
 					for line in iter(self.__process.stdout):
 						if self.__outputhandler is not None:
-							self.__outputhandler(line.strip())
+                            print("Output:", line.strip())
+                            self.__outputhandler(line.strip())
 
 	def __watcherror(self):
 		if self.__process is not None:
@@ -62,14 +65,17 @@ class Process:
 				if self.__process.stderr.readable():
 					line = self.__process.stderr.readline()
 					if self.__errorhandler is not None:
-						self.__errorhandler(line)
+                        print("Output:", line.strip())
+                        self.__errorhandler(line)
 					if self.__process.poll():
 						break
 
 	def __execute(self, program, arguments):
+        print(program, arguments)
 		self.__workeroutput = Thread(target = self.__watchoutput, daemon= True)
-		self.__workererror = Thread(target = self.__workererror, daemon= True)
-		self.__process = Popen(executable = program, args = arguments, stdout = PIPE, stderr = PIPE, universal_newlines = True)
+        self.__workererror = Thread(target=self.__workererror, daemon=True)
+        self.__process = Popen(executable=program, args=arguments, stdout=PIPE, stderr=PIPE, universal_newlines=True,
+                               shell=True)
 		self.__workeroutput.start()
 		self.__workererror.start()
 		self.__pid = self.__process.pid

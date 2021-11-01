@@ -1,5 +1,4 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-
 import actiontypes
 from sendtypes import SendTypes
 from sortingmethods import SortingMethods
@@ -86,9 +85,11 @@ class Config:
                                 self.RemoteHosts.append(host)
 
         except Exception as ex:
+            print("def")
             err = str(ex)
             return f"Config file could not read: {ex}"
         finally:
+            print("abc")
             if fd is not None:
                 fd.close()
 
